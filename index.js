@@ -3,6 +3,7 @@ const app = express()
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
+const stripe = require('stripe')(process.env.PAYMENT_SECRET_KEY)
 const port = process.env.PORT || 5000
 
 app.use(cors());
@@ -43,6 +44,7 @@ async function run() {
     const reviewCollection = client.db("dochouseDB").collection("reviews");
     const doctorCollection = client.db("dochouseDB").collection("doctors");
     const selectedCollection = client.db("dochouseDB").collection("selectedAppointment");
+    const paymentCollection = client.db("dochouseDB").collection("paymentSuccess");
 
 
     // jwt
@@ -82,11 +84,66 @@ async function run() {
       res.send(result);
     })
     // get selected appointment
-    app.get('/appointmentBook/:email', async (req, res) => {
-      const appointmentBook = req.params.email;
-
-      // res.send(result);
+    app.get('/appointmentBook/:email', jwtVerify, async (req, res) => {
+      const email = req.decoded.email;
+      if (email === req.params.email) {
+        const query = { userEmail: email };
+        const result = await selectedCollection.find(query).toArray();
+        res.send(result);
+      } else {
+        res.send([])
+      }
     })
+    // delete selected appointment
+    app.delete('/deleteAppointment/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) }
+      const result = await selectedCollection.deleteOne(query);
+      res.send(result);
+    })
+
+    // create Payment intent
+    app.post("/create-payment-intent", async (req, res) => {
+      const price = req.body.totalPrice;
+      const amount = price * 100;
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send({ clientSecret: paymentIntent.client_secret });
+    });
+
+    // set payment history
+    app.post("/payment-history", async (req, res) => {
+      const payment = req.body;
+      if (payment) {
+        const result = await paymentCollection.insertOne(payment);
+        res.send(result);
+      }
+      else {
+        res.send({ status: "404" })
+      }
+    })
+    // get payment history
+    app.get("/payment-history/:email", jwtVerify, async (req, res) => {
+      const email = req.params.email;
+      if (req.decoded.email === email) {
+        const query = { email: email };
+        const result = await paymentCollection.find(query).toArray();
+        res.send(result)
+      } else {
+        res.send({ status: "402" })
+      }
+    })
+    // Delete payment history
+    // app.delete("/payment-history-delete/:id", async(req, res) => {
+    //   const id = req.params.id;
+    //   const query = { _id: new ObjectId(id) }
+    //   const result = await paymentCollection.deleteOne(query);
+    //   res.send(result);
+    // })
+
 
   } finally {
     // Ensures that the client will close when you finish/error
