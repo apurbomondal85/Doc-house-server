@@ -38,10 +38,10 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
 
     const serviceCollection = client.db("dochouseDB").collection("services");
     const reviewCollection = client.db("dochouseDB").collection("reviews");
+    const userCollection = client.db("dochouseDB").collection("users");
     const doctorCollection = client.db("dochouseDB").collection("doctors");
     const selectedCollection = client.db("dochouseDB").collection("selectedAppointment");
     const paymentCollection = client.db("dochouseDB").collection("paymentSuccess");
@@ -52,6 +52,66 @@ async function run() {
       const user = req.body;
       const token = jwt.sign(user, process.env.USER_TOKEN, { expiresIn: '1h' });
       res.send({ token })
+    })
+
+    // Verify admin
+    const adminVerify = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const result = await userCollection.findOne(query);
+
+      if (result.role !== 'admin') {
+        return res.status(403).send({ error: 'forbidden message' });
+      }
+      next();
+
+    }
+
+
+    // post user
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      if (user) {
+        const query = { email: user.email }
+        const ext = await userCollection.findOne(query);
+        if (ext) {
+          res.send({ status: "Already" })
+        } else {
+          const result = await userCollection.insertOne({ name: user.name, email: user.email, role: user.role });
+          res.send(result);
+        }
+      }
+    })
+
+    // get user
+    app.get('/users/:email', jwtVerify, adminVerify, async (req, res) => {
+      const email = req.decoded.email
+      if (email === req.params.email) {
+        const result = await userCollection.find().toArray();
+        res.send(result);
+      }
+    })
+    // user update role
+    app.patch('/users/:id', async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) }
+      const options = { upsert: true };
+      const updateRole = {
+        $set: {
+          role: "admin"
+        }
+      }
+      const result = await userCollection.updateOne(filter, updateRole, options);
+      res.send(result);
+
+    })
+
+    // Delete user
+    app.delete('/users/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await userCollection.deleteOne(query);
+      res.send(result);
     })
 
     // get service
@@ -87,8 +147,7 @@ async function run() {
     app.get('/appointmentBook/:email', jwtVerify, async (req, res) => {
       const email = req.decoded.email;
       if (email === req.params.email) {
-        const query = { userEmail: email };
-        const result = await selectedCollection.find(query).toArray();
+        const result = await selectedCollection.find().toArray();
         res.send(result);
       } else {
         res.send([])
@@ -129,20 +188,12 @@ async function run() {
     app.get("/payment-history/:email", jwtVerify, async (req, res) => {
       const email = req.params.email;
       if (req.decoded.email === email) {
-        const query = { email: email };
-        const result = await paymentCollection.find(query).toArray();
+        const result = await paymentCollection.find().toArray();
         res.send(result)
       } else {
         res.send({ status: "402" })
       }
     })
-    // Delete payment history
-    // app.delete("/payment-history-delete/:id", async(req, res) => {
-    //   const id = req.params.id;
-    //   const query = { _id: new ObjectId(id) }
-    //   const result = await paymentCollection.deleteOne(query);
-    //   res.send(result);
-    // })
 
 
   } finally {
